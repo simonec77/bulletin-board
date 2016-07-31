@@ -12,11 +12,12 @@ In this tutorial we are going to build a desktop bulletin board. The user will b
 
 ## Table of Contents
 
-1. [Up and running](https://github.com/applegrain/reactron/blob/master/README.md#0-up-and-running)
+1. [Up and running](https://github.com/applegrain/reactron/blob/master/README.md#1-up-and-running)
+2. [Introducing React](https://github.com/applegrain/reactron/blob/master/README.md#2-introducing-react)
 
 ## 1. Up and running
 
-In this section, we are going to get ourselves set up with a running Electron application. We won't go too much in detail on how Electron works, there will be more of that in the next section. If you don't want to do all the configurations, clone this repo and check out the `up-and-running` branch.
+In this section, we are going to get ourselves set up with a running Electron application. If you don't want to do all the configurations, clone this repo and check out the `up-and-running` branch.
 
 Create a new git directory anywhere you see fit on your machine.
 
@@ -112,3 +113,94 @@ ipc.on('close', () => {
 Run `npm start` in your terminal and.... we are up and running!
 
 ![](http://i.giphy.com/26tPbkPf26wcwQfIY.gif)
+
+## 2. Introducing React
+
+We have a super sweet Electron application that currently doesn't do much. Let's add React to our project and make it even better. In this section, our goal is to render our `Hello, World` greeting in a React component instead.
+
+React uses [jsx](https://facebook.github.io/react/docs/jsx-in-depth.html) which needs to be transpiled using Babel. Let's add some Babel packages.
+
+```sh
+$ npm i --save-dev babel-register babel-preset-es2015 babel-preset-react
+```
+
+In order to get Babel running properly, add a `.babelrc` file.
+
+**.babelrc**
+```
+{ "presets": ["es2015", "react"] }
+```
+
+Usually when developing web applications using React we also use [webpack](https://webpack.github.io/). Webpack will bundle your code and can run it through different loaders before doing so - and transpiling our code from es5 to es6 is one of those steps. In our desktop application, we won't be using Webpack.
+
+Instead, to take advantage of all of Babels' features, we are going to wrap our entry point `main.js` in another file which loads Babel and the actual entry point.
+
+Create a file `bootstrapper.js` and add it as the entry point in your `package.json` file.
+
+```json
+{
+  "name": "reactron",
+  "version": "1.0.0",
+  "description": "react and electron tutorial",
+  "main": "bootstrapper.js",
+  "scripts": {
+    .....
+  }
+}
+```
+
+Require Babel and our actual entry point in `bootstrapper.js`.
+
+**bootstrapper.js**
+
+```js
+require('babel-register');
+require('./main.js');
+```
+
+In our `index.html` file, we need to add `script` tag in which we load Babel hooks in the renderer process and require our main script file. We should also swap our current `h1` tag to a `div` in which we can render our React components.
+
+**index.html**
+```html
+....
+
+<body>
+  <div id="main"></div>
+</body>
+
+<script>
+  require('babel-register');
+  require('./lib/main');
+</script>
+</html>
+```
+
+Next, we should add a folder called `lib` and in that folder, a file called `main.js`. `main.js` will serve as the entry point to all of our UI code.
+
+```sh
+$ mkdir lib
+$ touch lib/main.js
+```
+
+Last step is to add a simple React component to `main.js` that we render into the div with id `main`.
+
+```javascript
+'use babel';
+
+import React, { Component } from 'react';
+import ReactDOM from 'react-dom';
+
+class Main extends Component {
+  render () {
+    return (
+      <div>
+        <h1>Hello, World!</h1>
+      </div>
+    )
+  }
+}
+
+ReactDOM.render(<Main />, document.getElementById('main'));
+```
+
+Start the application from your terminal and you should see `Hello, World!` again - but this time it's way fancier since it's rendered with React. :smirk: 

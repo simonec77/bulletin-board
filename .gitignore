@@ -1,0 +1,5 @@
+# Ignore TODO file
+TODO.md
+
+# Ignore node_modules
+node_modules

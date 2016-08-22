@@ -15,6 +15,7 @@ In this tutorial we are going to build a desktop bulletin board. The user will b
 1. [Up and running](https://github.com/applegrain/reactron/blob/master/README.md#1-up-and-running)
 2. [Introducing React](https://github.com/applegrain/reactron/blob/master/README.md#2-introducing-react)
 3. [Adding a post](https://github.com/applegrain/reactron/blob/master/README.md#3-adding-a-post)
+4. [Post: adding and editing the body](https://github.com/applegrain/reactron/blob/master/README.md#4-post-adding-and-editing-the-body)
 
 ### 1. Up and running
 
@@ -355,11 +356,11 @@ We can take advantage of the fact that we at any given point know how many posts
 
 - compose post objects
 
-A post object has an id and a body: `let props = { id: id, body: '' }`.
+A post object has an id and a body: `let post = { id: id, body: '' }`.
 
 - add new Post object and add it to the local state of `Main`
 
-We add the new `Post` component to the state: `this.setState({ posts: this.state.posts.concat(props) });`.
+We add the new `post` object to the state: `this.setState({ posts: this.state.posts.concat(post) });`.
 
   - pass down this.state.posts to the `Sidebar` component: `<Sidebar onAddNewPost={this.handleAddNewPost} posts={this.state.posts} />`.
 
@@ -369,9 +370,9 @@ We add the new `Post` component to the state: `this.setState({ posts: this.state
 ```javascript
 _handleAddNewPost() {
   let id = this.state.posts.length;
-  let props = { id: id, body: '' }
+  let post = { id: id, body: '' }
 
-  this.setState({ posts: this.state.posts.concat(props) });
+  this.setState({ posts: this.state.posts.concat(post) });
 }
 
 ...
@@ -408,24 +409,165 @@ export default React.createClass({
 });
 ```
 
-Require the component in `Main`...
+Require the component in `Sidebar`...
 
 **main.js.**
 ```javascript
-import Post from './components/Post'
+import Post from './Post'
 ```
 
 And the last step is to render the posts in the `render` function of `Sidebar`.
 
+[Go here](https://developer.mozilla.org/en/docs/Web/JavaScript/Reference/Operators/Spread_operator) to read more about the spread syntax (`...object`).
+
 ```javascript
 render() {
+  let posts = this.props.posts.map(p => <Post key={p.id} {...p} />);
   return (
     <div>
       <button onClick={this.handleAddNew}>Add New</button>
-      {this.props.posts}
+      {posts}
     </div>
   )
 }
 ```
 
 Try it out in your app and when you click the `Add New` button, you should see your posts rendering.
+
+### 4. Post: Adding and editing the body
+
+Currently, when we click the `Add New` button, we are just adding multiple post components with the same body.
+
+We need to do two things:
+
+- create a better default body
+- allow the user to inline edit and save the post
+
+When you are adding a new post, you are probably intending to add your message right away. A great user experience would be to move the cursor to the body so the user can start typing right away.
+
+Instead of having a default body, we could display a placeholder if *there is not* a body. Let's swap the paragraph tag with an input field. We also add a `defaultValue`, set to the body of the post, so that the body of the post shows up if there is one.
+
+**lib/components/Post.js**
+```javascript
+<div>
+  <input placeholder={this.props.body ? "" : "Write sth..."} defaultValue={this.props.body} />
+</div>
+```
+
+Nice. With this in place, we have a placeholder instead of an actual value that the user have to remove before adding their own text. Next, in order to make the newly added Post focused, we can leverage [refs](https://facebook.github.io/react/docs/more-about-refs.html). In their documentation, they have an [example](https://facebook.github.io/react/docs/more-about-refs.html#the-ref-callback-attribute) that achieves exactly what we're trying to do.
+
+First, we need to tag our input. We do that with a ref callback. The ref callback takes the component itself as a first argument, and then we assign it to `this._input`.
+
+**lib/components/Post.js**
+```javascript
+<input placeholder={this.props.body ? "" : "Write sth..."} defaultValue={this.props.body} ref={(c) => this._input = c} />
+```
+
+Later, we can use our `_input` attribute in a `componentDidMount` lifecycle method.
+
+**lib/components/Post.js**
+```javascript
+componentDidMount() {
+  this._input.focus();
+},
+```
+
+Try it out by running `npm start`... when you add a new post it should be focused and ready for you to edit!
+
+Next thing we should take a look at is saving whatever text the user enters in the input field. We need to take the input value, pass it up to `main` where we keep track of the posts as state, update the body of the relevant post, and set the state so it is translated down to the `Sidebar`.
+
+To allow for a very "fluid" user experience, instead of having a `Save` button next to the input fields, we update the body whenever it's changed. We use React's `onChange` event to register everytime the input field is being modified.
+
+**lib/components/Post.js**
+```javascript
+<input onChange={this.handleChange}
+       defaultValue={this.props.body}
+       placeholder={this.props.body ? "" : "Write sth..."}
+       ref={(c) => this._input = c} />
+```
+
+Our eventhandler, `this.handleChange` is a function local to this component. There, we can capture the current value of the input field and then pass that up to our parent and update the props passed down to the post.
+
+After adding the `handleChange` function to our `Post` component and logging the the target value from the [event](https://developer.mozilla.org/en-US/docs/Web/API/Event) object, open up your dev tools in the app and see that it will log all text you enter.
+
+**lib/components/Post.js**
+```javascript
+handleChange(e) {
+  console.log(e.target.value);
+},
+```
+
+Next, we need to call a function that's (not yet) passed down as a prop. Note that we are passing both the id of the post and the text we'd like to set as the body.
+
+**lib/components/Post.js**
+```javascript
+handleChange(e) {
+  this.props.handlePostChange(this.props.id, e.target.value)
+},
+```
+
+Let's add this function to the props passed down to `Post`.
+
+**lib/main.js**
+```javascript
+_handleAddNewPost() {
+  let id = this.state.posts.length;
+  let props = { id: id, body: '', handlePostChange: this.handlePostChange };
+
+  this.setState({ posts: this.state.posts.concat(<Post {...props} />) });
+}
+```
+
+And then add the implementation (just `console.log` the arguments passed through for now so we can verify that it works)...
+
+**lib/main.js**
+```javascript
+
+class Main extends Component {
+  constructor() {
+    super();
+
+    .....
+
+    this.handlePostChange = (id, body) => this._handlePostChange(id, body);
+  }
+
+
+  ....
+
+  _handlePostChange(id, body) {
+    console.log(id, body);
+  }
+
+....
+}
+```
+
+Try it out with your dev tools open and you should be able to see the arguments come through.
+
+To actually implement the functionality in `handlePostChange`, here's the pseudo code I came up with:
+
+```javascript
+_handlePostChange(id, body) {
+  // iterate over the posts and find the one with matching id
+  // update it's `body` attribute to the value received as an argument
+  // update the state `posts` to the updated array of posts (the return value of the iteration)
+}
+```
+
+You are of course free to use the pseudo code as a starting point and go with an implementation of your own, but this is what I came up with:
+
+```javascript
+_handlePostChange(id, body) {
+  let posts = this.state.posts.map((post) => {
+    if (post.id === id) {
+      post.body = body;
+    }
+    return post;
+  })
+
+  this.setState({ posts });
+}
+```
+
+If you add a few `console.log` statements in your code to inspect the state in `main`, verify that it actually updates. Next step is to write the posts to the filesystem so that we can save them across sessions!

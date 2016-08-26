@@ -16,6 +16,7 @@ In this tutorial we are going to build a desktop bulletin board. The user will b
 2. [Introducing React](https://github.com/applegrain/reactron/blob/master/README.md#2-introducing-react)
 3. [Adding a post](https://github.com/applegrain/reactron/blob/master/README.md#3-adding-a-post)
 4. [Post: adding and editing the body](https://github.com/applegrain/reactron/blob/master/README.md#4-post-adding-and-editing-the-body)
+5. [Post: persisting posts](https://github.com/applegrain/reactron/blob/master/README.md#5-persisting-posts)
 
 ### 1. Up and running
 
@@ -571,3 +572,214 @@ _handlePostChange(id, body) {
 ```
 
 If you add a few `console.log` statements in your code to inspect the state in `main`, verify that it actually updates. Next step is to write the posts to the filesystem so that we can save them across sessions!
+
+### 5. Persisting posts
+
+Now, whenever we refresh the page, our posts we have added disappear right away. Not the most useful application. It would make way more sense if we could actually persist them across sessions of our application. Since we have easy access to the machine's filesystem when we create electron applications, it will basically work as our database.
+
+Then, whenever the app starts up, we can read all posts from a designated directory (probably as plain `txt` files) in our main process, and send them over to our renderer process. And whenever we make changes to a post, we could write all current posts to the designated directory to make sure we are up to date.
+
+Let's write a to-do list to make things a bit easier.
+
+```
+TODO:
+
+- on app start, read all files from a directory (probably ~/BulletinBoard)
+- format the contents and send them to the renderer process
+  - the posts should be formatted as the following object: { id: x, body: 'y'}
+- receive all posts in the renderer process, set them as state in the `Main` component
+
+- when a post is modified, we send over the updated state to the main process
+- receive the posts in the main process, write each body as a single `txt` file to directory ~/BulletinBoard
+```
+
+Let's start with the second block of text, writing any current posts to the designated directory.
+
+If we take a look in `lib/main.js`, we can see that we have a function where we handling changes to the posts. In the `handlePostChange` function, the last thing we are doing is setting the state to the updated version of the posts. By using the `ipcRenderer` we get from the `electron` library, we can send the updated version of the posts to the main process to write them to the filesystem.
+
+Let's start by importing the `ipcRenderer`.
+
+**lib/main.js**
+```javascript
+import { ipcRenderer as Ipc } from 'electron';
+```
+
+Below is what our `_handlePostChange` function looks like. The most obvious thing to do would be to just send a message using `ipc` on the last line in the function, but `setState` does not immediately mutate the state - it creates a pending state transition. Sending `this.state.posts` on the last line would mean that we are actually not sending the most recent version of the state. Fortunately, the `setState` function accepts a callback as a second argument which will be called once the state has been mutated.
+
+**lib/main.js**
+```javascript
+_handlePostChange(id, body) {
+  let posts = this.state.posts.map((post) => {
+    if (post.id === id) post.body = body;
+    return post;
+  });
+  this.setState({ posts });
+}
+```
+
+So, to send the most recent version of the state once it's mutated, all we have to do is adding a callback. I named the event simply `data`, but feel free to give the channel a more descriptive name if you like.
+
+**lib/main.js**
+```javascript
+_handlePostChange(id, body) {
+  let posts = this.state.posts.map((post) => {
+    if (post.id === id) post.body = body;
+    return post;
+  });
+  this.setState({ posts }, , () => Ipc.send('data', this.state.posts));
+}
+```
+
+For receiving the posts and saving the posts, let's start by setting up a listener for the `data` channel. We could write to the filesystem every time we receive a new version of the state, but for now let's only write to the filesystem when the app closes.  
+
+**main.js**
+```javascript
+ipc.on('data', (event, payload) => {
+  // receive the payload and write to the filesystem later
+});
+```
+
+Once we receive the posts, we need to hold on to them to access later when the app closes. We can create a variable in the global scope which we can access later. So at the top of **main.js**, create a variable called `posts` (or whatever else you might find fitting) and set it to `null`. When we receive a payload on the `data` channel, we are going to assign the payload (our most recent version of the posts) to that variable.
+
+**main.js**
+```javascript
+ipc.on('data', (event, payload) => {
+  posts = payload;
+});
+```
+
+Great! Now we have access to the posts whenever we need them. But when would it make sense to write them to the filesystem? The `app` object we get from `electron` emits a lot of [events](https://github.com/electron/electron/blob/master/docs/api/app.md), and on of the is `before-quit`.
+
+**main.js**
+```javascript
+app.on('before-quit', () => {
+  // this happens right before the app quits
+});
+```
+
+Awesome. What do we want to happen? For each post, we need to write it. Our dream implementation here, might look something like this:
+
+**main.js**
+```javascript
+app.on('before-quit', () => {
+  posts.forEach(writePost);
+});
+```
+
+Now, we just have to go and write the `writePost` function. Whenever I'm coding I prefer to write functions that haven't yet been written, just so that I end up with the code I _want_ and not with the first draft that I write. The `writePost` function is the "guts" and those we can mess with and change as much as we like while the top level stays clean.
+
+So what do we need the function to do? Write the contents of the post in the right place in the filesystem. Easy.
+
+**main.js**
+```javascript
+const writePost = (post) => {
+  let fileName = `${app.getPath('documents')}/BulletinBoard/${post.id}-note.txt`;
+  fs.writeFileSync(fileName, post.body);
+};
+```
+
+And in order for this to work, we should require the `fs` module from node at the top of the file.
+
+**main.js**
+```javascript
+import fs from 'fs';
+```
+
+As I'm not expecting the user to interact with the posts through the filesystem and only through the awesome app we're building, we can name the files whatever we'd like. Having a standard way of naming is also great in this case as the new copies will simply overwrite the previous copies.
+
+Awesome! I think we're ready with the first part of this problem. Next is to send any existing posts to the renderer process when the app starts up.
+
+Let's start with what we _want_ to have happen.
+
+When the app has finished loading, we want to send any eventual posts to the renderer process. Just as the `app` object emits events, so does also the `BrowserWindow`. The one we're interested in is the `did-finish-load`. Once the window has finished loading, we want to send the existing posts.
+
+**main.js**
+```javascript
+mainWindow.webContents.on('did-finish-load', () => {
+  sendExistingPosts();
+});
+```
+
+Obviously, this doesn't do much yet. We need to write the `sendExistingPosts` function. As usual, let's start with some pseudo code.
+
+**main.js**
+```javascript
+const sendExistingPosts = () => {
+  // in the ~/Documents/BulletinBoard directory,
+  // for each file,
+  // take the content and format it as { id: index, body: content }
+    // where the index is the index of the file in the directory
+    // and the content is the text content of the file
+
+ // once we have iterated, send the return value to the renderer process
+}
+```
+
+Great. We are missing one thing though. What if the `~/Documents/BulletinBoard` directory doesn't exist? That could happen the first time we are starting up the app or if the user has accidentally (or intentionally) deleted the `BulletinBoard` directory.
+
+We should add a guard clause to our pseudo code.
+
+**main.js**
+```javascript
+const sendExistingPosts = () => {
+  // create the directory unless it already exists
+
+  // in the ~/Documents/BulletinBoard directory,
+  // for each file,
+  // take the content and format it as { id: index, body: content }
+    // where the index is the index of the file in the directory
+    // and the content is the text content of the file
+
+ // once we have iterated, send the return value to the renderer process
+}
+```
+
+Let's start with the guard clause part. We can write a function `ensureDirExists`, pass it the path (in order not to couple it with this specific directory and have it be more dynamic) and try to create the directory.
+
+
+**main.js**
+```javascript
+const sendExistingPosts = () => {
+  const path = `${app.getPath('documents')}/BulletinBoard`;
+  ensureDirExists(path);
+
+  // in the ~/Documents/BulletinBoard directory,
+  // for each file,
+  // take the content and format it as { id: index, body: content }
+    // where the index is the index of the file in the directory
+    // and the content is the text content of the file
+
+ // once we have iterated, send the return value to the renderer process
+}
+
+const ensureDirExists = (path) => {
+  try {
+    fs.mkdirSync(path);
+  } catch (e) {
+    if (e.code !== 'EEXIST') throw e;
+  }
+};
+```
+
+Awesome. Now our program won't blow up on us.
+
+Next, let's write code for our pseudo code. Please, feel free to try it out on your own before you look at my implementation! Submit a PR if you come up with something that's cleaner than my solution...
+
+Here, we are reading the entire directory (we'll get an array of filenames) at the given path, then iterating over each filename, and reading the content of the given file. Then we are returning objects with an id and a body, just like we expect the data in the renderer process.
+
+**main.js**
+```javascript
+const sendExistingPosts = () => {
+  const path = `${app.getPath('documents')}/BulletinBoard`;
+  ensureDirExists(path);
+
+  let existingPosts = fs.readdirSync(path).map((file, index) => {
+    let content = fs.readFileSync(path + '/' + file).toString();
+    return { id: index, body: content };
+  });
+
+  mainWindow.webContents.send('data', existingPosts);
+}
+```
+
+Try it out in our app... and after adding posts and closing the application, you should find a `BulletinBoard` directory with your posts stored in it. Open the app again, and those previous posts should render! Nice work!

@@ -17,6 +17,7 @@ In this tutorial we are going to build a desktop bulletin board. The user will b
 3. [Adding a post](https://github.com/applegrain/reactron/blob/master/README.md#3-adding-a-post)
 4. [Post: adding and editing the body](https://github.com/applegrain/reactron/blob/master/README.md#4-post-adding-and-editing-the-body)
 5. [Post: persisting posts](https://github.com/applegrain/reactron/blob/master/README.md#5-persisting-posts)
+6. [Post: deleting posts](https://github.com/applegrain/reactron/blob/master/README.md#6-deleting-posts)
 
 ### 1. Up and running
 
@@ -783,3 +784,108 @@ const sendExistingPosts = () => {
 ```
 
 Try it out in our app... and after adding posts and closing the application, you should find a `BulletinBoard` directory with your posts stored in it. Open the app again, and those previous posts should render! Nice work!
+
+### 6. Deleting posts
+
+After that part, let's do something a bit less intense. We can add and edit posts, but let's also implement a way of deleting the posts. That functionality we can take care of entirely in the renderer process.
+
+Let's write a todo-list:
+
+```
+TODO:
+
+- add delete button to the `Post` component
+- add an event listener to the button that will call a prop function passed down
+  - once the event is carried up, filter out the post with the matching ID and set new state
+```
+
+Nice! First we can add the button.
+
+**lib/components/Post.js**
+```javascript
+render() {
+  return (
+    <div>
+      <input onChange={this.handleChange}
+             defaultValue={this.props.body}
+             placeholder={this.props.body ? "" : "Write sth..."}
+             ref={(c) => this._input = c} />
+      <button onClick={this.handleDelete}>Delete</button>
+    </div>
+  )
+}
+```
+
+Awesome. Next - let's add the callback function.
+
+We are passing in the id of the post to this function so that we know which post it was that the user wanted to remove.
+
+**lib/components/Post.js**
+```javascript
+handleDelete() {
+  this.props.onDeletePost(this.props.id);
+},
+```
+
+Now, in **lib/main.js**, we need to add another function to the `post` object.
+
+**lib/components/Post.js**
+```javascript
+let post = { id: id, body: '', handlePostChange: this.handlePostChange, handleDeletePost: this.handleDeletePost };
+```
+
+And add that function to the constructor...
+
+**lib/main.js**
+```javascript
+class Main extends Component {
+  constructor() {
+    ...
+
+    this.handleDeletePost = (id) => this._handleDeletePost(id);
+
+    ...
+  }
+
+  _handleDeletePost(id) {
+    // find the matching post and delete it
+  }
+
+  ....
+}
+```
+
+The implementation of `_handleDeletePost` will be relatively simple. We can use `Array.filter()` to find the matching id and simply remove it from the collection.
+
+**lib/main.js**
+```javascript
+_handleDeletePost(id) {
+  let posts = this.state.posts.filter((post) => {
+    return post.id !== id;
+  });
+
+  this.setState({ posts });
+}
+```
+
+Implementing this function I realized a bug - you might've found it before me and already fixed it, but if not, below is the fix.
+
+When we receive the existing data, we (I) have forgotten to add the functions to handle the content change and deleting the post. Therefore, when we render posts from the filesystem, we won't be able to delete them or updating their body since they don't know how to!
+
+Let's change the `_handleExistingData` function to also add in those functions before we set the state.
+
+**lib/main.js**
+```javascript
+_handleExistingData(event, payload) {
+  let posts = payload.map((post) => {
+    post['handlePostChange'] = this.handlePostChange;
+    post['handleDeletePost'] = this.handleDeletePost;
+
+    return post;
+  });
+
+  this.setState({ posts });
+}
+```
+
+This solves our problem for now, but as we continue coding we might refactor it to a better solution. The problem with this implementation is that we have to manage the additional functions added to the post in two places - in `_handleExistingData` and `_handleAddNew`.  

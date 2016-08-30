@@ -7,8 +7,8 @@ let posts = null;
 app.on('ready', () => {
   console.log('The Bulletin Board is starting up...');
 
-  mainWindow = new BrowserWindow({ width: 1000,
-                                   height: 600,
+  mainWindow = new BrowserWindow({ width: 300,
+                                   height: 500,
                                    frame: false });
 
   mainWindow.loadURL(`file://${__dirname}/index.html`);
